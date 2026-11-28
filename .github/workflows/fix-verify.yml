@@ -33,10 +33,9 @@ on:
       - '.github/workflows/fix-verify.yml'
       - 'ops/ci/**'
 
-# 요청(스레드)마다 따로. 전역 그룹이면 대기 칸이 1개라 몰릴 때 대기 run 이 조용히 취소되고 notify 도 안 돈다.
-concurrency:
-  group: fix-verify-${{ inputs.thread_ts || github.ref }}
-  cancel-in-progress: false
+# concurrency 는 job 단위다(7단계 verify #2). 워크플로 단위면 create-pr 의 승인 대기(최대 30일) 동안 같은 스레드의 다음
+# run 이 pending 이 되고, 세 번째 run 이 오면 그 pending 이 조용히 취소된다. 요청(스레드)마다 따로 둔다 — 전역 그룹이면
+# 대기 칸이 1개라 몰릴 때도 같은 일이 생긴다.
 
 jobs:
   scripts:
@@ -55,6 +54,9 @@ jobs:
   test:
     name: Apply fix and run affected tests
     if: github.event_name == 'workflow_dispatch'
+    concurrency:
+      group: fix-verify-${{ inputs.thread_ts }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -177,6 +179,9 @@ jobs:
     name: Reply in the incident thread
     needs: test
     if: always() && github.event_name == 'workflow_dispatch'
+    # concurrency 없음: 짧은 job 이고, 그룹을 걸면 몰릴 때 대기 칸 1개 규칙으로 중간 run 의 notify 가 조용히 취소된다.
+    outputs:
+      approvable: ${{ steps.post.outputs.approvable }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -195,7 +200,9 @@ jobs:
           name: fix-summary
           path: summary
 
+      # approvable(새 실패 0건)은 Slack 전송 전에 GITHUB_OUTPUT 으로 나간다 — Slack 이 실패해도 승인 대기는 뜬다.
       - name: Post to Slack
+        id: post
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           CHANNEL: ${{ inputs.channel }}
@@ -203,4 +210,110 @@ jobs:
           LABEL: ${{ inputs.label }}
           TEST_RESULT: ${{ needs.test.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python3 -I ops/ci/notify_slack.py summary/summary.json
+        run: python3 -I ops/ci/notify_slack.py summary/summary.json --approvable-output
+
+  # 7단계(docs/plan/fix-approval-pr): 새 실패 0건이면 승인 대기 → 승인하면 Draft PR.
+  # 쓰기 권한은 이 job 에만. 실행하는 저장소 코드는 워크플로 커밋($GITHUB_SHA)의 ops/ci 스크립트뿐 — 수정 대상 코드는
+  # 빌드·실행하지 않는다. fix-patch artifact 는 test job(수정 코드가 돈 곳)이 바꿀 수 있으므로 믿지 않고, 입력 edits 를
+  # 다시 적용해 만든 diff 와 대조만 한다.
+  create-pr:
+    name: Open a draft PR after approval
+    needs: [test, notify]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.test.result == 'success' && needs.notify.outputs.approvable == 'true' }}
+    environment: fix-approval
+    concurrency:
+      group: fix-approval-${{ github.run_id }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      IN_REF: ${{ inputs.ref }}
+      EDITS: ${{ inputs.edits }}
+      BRANCH: fix/alert-${{ github.run_id }}-${{ github.run_attempt }}
+      CHANNEL: ${{ inputs.channel }}
+      THREAD_TS: ${{ inputs.thread_ts }}
+      LABEL: ${{ inputs.label }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Check out (push needs credentials; no repository code is built or run)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # artifact 를 받는 폴더(RUNNER_TEMP/artifact-*)와 분리한다 — download 쪽 경로 버그가 있어도 신뢰 스크립트를 못 덮게.
+      - name: Trusted scripts from the workflow commit
+        run: |
+          mkdir -p "$RUNNER_TEMP/trusted"
+          for f in apply_edits.py notify_slack.py pr_body.py; do
+            git show "$GITHUB_SHA:ops/ci/$f" > "$RUNNER_TEMP/trusted/$f"
+          done
+
+      - name: Download patch (for comparison only)
+        uses: actions/download-artifact@v4
+        with:
+          name: fix-patch
+          path: ${{ runner.temp }}/artifact-patch
+
+      - name: Download summary
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: fix-summary
+          path: ${{ runner.temp }}/artifact-summary
+
+      - name: Re-apply edits and compare
+        id: apply
+        run: |
+          [[ "$IN_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "ref 형식 아님"; exit 1; }
+          git merge-base --is-ancestor "$IN_REF" origin/main || { echo "ref 가 main 의 조상이 아님"; exit 1; }
+          git switch -c "$BRANCH" "$IN_REF"
+          changed=$(python3 -I "$RUNNER_TEMP/trusted/apply_edits.py" .)
+          git diff > "$RUNNER_TEMP/regen.patch"
+          if ! cmp -s "$RUNNER_TEMP/regen.patch" "$RUNNER_TEMP/artifact-patch/fix.patch"; then
+            echo "다시 만든 diff 가 테스트한 fix-patch 와 다름 — 중단"; exit 1
+          fi
+          echo "path=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        env:
+          CHANGED: ${{ steps.apply.outputs.path }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "$CHANGED"
+          git commit -q -m "fix: AI 제안 수정 (fix-verify $GITHUB_RUN_ID)" -m "$RUN_URL"
+          git push -q origin "$BRANCH"
+          echo "pushed=true" >> "$GITHUB_ENV"
+
+      - name: Open draft PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED: ${{ steps.apply.outputs.path }}
+        run: |
+          python3 -I "$RUNNER_TEMP/trusted/pr_body.py" "$RUNNER_TEMP/artifact-summary/summary.json" "$RUNNER_TEMP/title" "$RUNNER_TEMP/body"
+          url=$(gh pr create --draft --base main --head "$BRANCH" --title "$(cat "$RUNNER_TEMP/title")" --body-file "$RUNNER_TEMP/body")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "$url"
+
+      - name: Reply with the PR link
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: python3 -I "$RUNNER_TEMP/trusted/notify_slack.py" --pr-url "$PR_URL"
+
+      # PR 이 만들어졌으면(Slack 답글만 실패) 브랜치를 지우지 않고 실패 알림도 보내지 않는다. 타임아웃 취소도 정리한다.
+      - name: Clean up and report failure
+        if: failure() || cancelled()
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: |
+          if [ -n "$PR_URL" ]; then exit 0; fi
+          if [ "${pushed:-}" = true ]; then
+            git push -q origin --delete "$BRANCH" || true
+          fi
+          python3 -I "$RUNNER_TEMP/trusted/notify_slack.py" --pr-failed || true

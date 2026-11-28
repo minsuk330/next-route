@@ -54,6 +54,11 @@ def git(target: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(target), *args], check=True, capture_output=True, text=True).stdout
 
 
+def git_bytes(target: Path, *args: str) -> bytes:
+    """Raw output. fix.patch must be byte-identical to what create-pr gets from `git diff >` (text mode folds CR)."""
+    return subprocess.run(["git", "-C", str(target), *args], check=True, capture_output=True).stdout
+
+
 def prepare(target: Path, out: Path) -> int:
     out.mkdir(parents=True, exist_ok=True)
     code = apply_edits.main(["apply_edits.py", str(target)])
@@ -62,7 +67,7 @@ def prepare(target: Path, out: Path) -> int:
                       reason="bad_input" if code == 3 else "edits_do_not_match")
         (out / "skip").write_text("1")
         return 0
-    (out / "fix.patch").write_text(git(target, "diff"), encoding="utf-8")
+    (out / "fix.patch").write_bytes(git_bytes(target, "diff"))
     changed = [p for p in git(target, "diff", "--name-only").split("\n") if p]
     picked = select_tests.select(target, changed)
     (out / "tests.txt").write_text("ALL\n" if picked is None else "\n".join(picked) + "\n", encoding="utf-8")

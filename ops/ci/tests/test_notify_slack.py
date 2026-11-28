@@ -96,5 +96,70 @@ class MainTest(unittest.TestCase):
             self.assertEqual(ns.main(["x", str(p), "--dry-run"]), 0)
 
 
+
+
+class ApprovableTest(unittest.TestCase):
+    def f(self, baseline=True):
+        return {"test": "a.B#x", "message": "m", "baseline": baseline}
+
+    def test_table(self):
+        cases = [
+            ("passed", summary(), True),
+            ("passed but failed count", summary(failed=1), False),
+            ("all baseline", summary(status="failed", failed=2, failures=[self.f(), self.f()], baseline_checked=True), True),
+            ("one new", summary(status="failed", failed=2, failures=[self.f(), self.f(False)], baseline_checked=True), False),
+            ("baseline not checked", summary(status="failed", failed=1, failures=[self.f()], baseline_checked=False), False),
+            ("list cut at 20", summary(status="failed", failed=25, failures=[self.f()] * 20, baseline_checked=True), False),
+            ("compile_failed", summary(status="compile_failed"), False),
+            ("apply_failed", summary(status="apply_failed"), False),
+            ("error", summary(status="error"), False),
+            ("missing", None, False),
+            ("forged types", summary(status="failed", failed="1", failures=[self.f()], baseline_checked=True), False),
+            ("baseline truthy not True", summary(status="failed", failed=1, failures=[{"baseline": 1}], baseline_checked=True), False),
+        ]
+        for name, s, want in cases:
+            with self.subTest(name):
+                self.assertIs(ns.approvable(s), want)
+
+    def test_render_shows_approval_link_only_when_approvable(self):
+        self.assertIn("승인하면 Draft PR 생성", ns.render(summary(), "", "success", URL))
+        bad = summary(status="failed", failed=1, failures=[self.f(False)], baseline_checked=True)
+        self.assertNotIn("승인하면", ns.render(bad, "", "success", URL))
+
+
+class ModesTest(unittest.TestCase):
+    def setUp(self):
+        self.env = dict(os.environ)
+        self.tmp = tempfile.TemporaryDirectory()
+        os.environ.update({"CHANNEL": "C0123ABCD", "THREAD_TS": "1700000000.000100", "RUN_URL": URL})
+        os.environ.pop("SLACK_BOT_TOKEN", None)
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.env)
+        self.tmp.cleanup()
+
+    def test_approvable_output_is_written_even_when_slack_cannot_post(self):
+        out = Path(self.tmp.name, "out")
+        os.environ["GITHUB_OUTPUT"] = str(out)
+        p = Path(self.tmp.name, "s.json")
+        p.write_text(json.dumps(summary()))
+        self.assertEqual(ns.main(["x", str(p), "--approvable-output"]), 1)  # no token: Slack fails
+        self.assertEqual(out.read_text(), "approvable=true\n")
+        os.environ["CHANNEL"] = "bad"
+        out.write_text("")
+        self.assertEqual(ns.main(["x", str(Path(self.tmp.name, "nope.json")), "--approvable-output"]), 1)
+        self.assertEqual(out.read_text(), "approvable=false\n")
+
+    def test_pr_url_mode(self):
+        self.assertEqual(ns.main(["x", "--pr-url", "https://github.com/o/r/pull/12", "--dry-run"]), 0)
+        for bad in ["https://evil.example/o/r/pull/1", "https://github.com/o/r/pull/1<!channel>", "", "https://github.com/o/r/issues/1"]:
+            with self.subTest(bad=bad):
+                self.assertEqual(ns.main(["x", "--pr-url", bad, "--dry-run"]), 1)
+
+    def test_pr_failed_mode(self):
+        self.assertEqual(ns.main(["x", "--pr-failed", "--dry-run"]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

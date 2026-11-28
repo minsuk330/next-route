@@ -6,7 +6,13 @@ type-checked, cut to length, masked for secret shapes and escaped for Slack mrkd
 is ever passed to a shell.
 
 Env: SLACK_BOT_TOKEN, CHANNEL, THREAD_TS, LABEL, TEST_RESULT (needs.test.result), RUN_URL.
-Usage: notify_slack.py <summary.json path, may be missing> [--dry-run]
+Usage:
+  notify_slack.py <summary.json, may be missing> [--approvable-output] [--dry-run]   result reply
+  notify_slack.py --pr-url <url> [--dry-run]                                          Draft PR link reply
+  notify_slack.py --pr-failed [--dry-run]                                             Draft PR failure reply
+
+--approvable-output writes approvable=true|false to $GITHUB_OUTPUT before anything is posted, so the
+create-pr job can wait for approval even if Slack fails (stage 7, docs/plan/fix-approval-pr).
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from pathlib import Path
 CHANNEL = re.compile(r"^[CG][A-Z0-9]{6,}$")
 THREAD_TS = re.compile(r"^\d{9,11}\.\d{1,6}$")
 STATUSES = {"passed", "failed", "apply_failed", "compile_failed", "error"}
+PR_URL = re.compile(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/\d+$")
 MAX_TEXT = 3000
 SHOW_FAILURES = 5
 # Same secret shapes as alert-analyzer/analyzer/masking.py (_CODE_RULES) plus GitHub tokens.
@@ -60,6 +67,28 @@ def load(path: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def approvable(summary: dict | None) -> bool:
+    """Stage 7 gate: no new failures. Untrusted input, so every field is checked, not assumed.
+
+    passed with zero failures, or failed where the unpatched commit failed the same tests: baseline was
+    checked, the list is complete (len == failed, not cut at 20) and every entry is a baseline failure.
+    """
+    if not isinstance(summary, dict):
+        return False
+    status = summary.get("status")
+    failed = summary.get("failed")
+    if not isinstance(failed, int) or isinstance(failed, bool):
+        return False
+    if status == "passed":
+        return failed == 0
+    if status != "failed" or summary.get("baseline_checked") is not True:
+        return False
+    failures = summary.get("failures")
+    if not isinstance(failures, list) or failed <= 0 or len(failures) != failed:
+        return False
+    return all(isinstance(f, dict) and f.get("baseline") is True for f in failures)
+
+
 def render(summary: dict | None, label: str, test_result: str, run_url: str) -> str:
     head = f":test_tube: *수정 검증*{' — ' + label if label else ''}"
     link = f"<{run_url}|실행 보기>"
@@ -91,6 +120,8 @@ def render(summary: dict | None, label: str, test_result: str, run_url: str) -> 
     for f in (new or failures)[:SHOW_FAILURES]:
         lines.append(f"    • {clean(f.get('test'), 160)} — `{clean(f.get('message'), 200)}`")
     lines.append(f"{link} · 수정본은 실행의 artifact `fix-patch`(90일)")
+    if approvable(summary):
+        lines.append(f":white_check_mark: 새 실패 없음 — artifact `fix-patch` diff 를 보고 <{run_url}|승인하면 Draft PR 생성>")
     text = "\n".join(lines)
     return text if len(text) <= MAX_TEXT else text[:MAX_TEXT - 2] + " …"
 
@@ -107,15 +138,41 @@ def post(token: str, channel: str, thread_ts: str, text: str) -> None:
         raise RuntimeError(f"slack error: {data.get('error')}")
 
 
+def write_output(name: str, value: str) -> None:
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"{name}={value}\n")
+
+
 def main(argv: list[str]) -> int:
+    args = argv[1:]
+    flags = {a for a in args if a.startswith("--")}
+    positional = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] != "--pr-url")]
+    run_url = os.environ.get("RUN_URL", "")
+    label = clean(os.environ.get("LABEL", ""), 80)
+    head = f":test_tube: *수정 검증*{' — ' + label if label else ''}"
+
+    if "--pr-url" in flags:
+        i = args.index("--pr-url")
+        url = args[i + 1] if i + 1 < len(args) else ""
+        if not PR_URL.match(url):
+            print("PR url 형식 아님 — 보내지 않음", file=sys.stderr)
+            return 1
+        text = f"{head}\n:arrow_right: Draft PR 만듦 — <{url}|PR 보기> (AI 제안, 리뷰 후 머지)"
+    elif "--pr-failed" in flags:
+        text = f"{head}\n:warning: Draft PR 만들기 실패 — <{run_url}|실행 보기>"
+    else:
+        summary = load(Path(positional[0])) if positional else None
+        if "--approvable-output" in flags:
+            # Before any Slack call: a Slack failure must not hide the approval gate.
+            write_output("approvable", "true" if approvable(summary) else "false")
+        text = render(summary, label, os.environ.get("TEST_RESULT", ""), run_url)
+
     channel, thread_ts = os.environ.get("CHANNEL", ""), os.environ.get("THREAD_TS", "")
     if not CHANNEL.match(channel) or not THREAD_TS.match(thread_ts):
         print("channel/thread_ts 형식 아님 — 보내지 않음", file=sys.stderr)
         return 1
-    paths = [a for a in argv[1:] if not a.startswith("--")]
-    summary = load(Path(paths[0])) if paths else None
-    text = render(summary, clean(os.environ.get("LABEL", ""), 80), os.environ.get("TEST_RESULT", ""),
-                  os.environ.get("RUN_URL", ""))
     if "--dry-run" in argv:
         print(text)
         return 0

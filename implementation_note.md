@@ -7467,3 +7467,13 @@ VPS 컨테이너 키로 실호출. 표본 107행(12개 역: 강남·신도림·�
 - Linux 컨테이너(--cpus 2): 시각 3개 통과, RerouteRemainingPathIT 4/4 통과(수정 전 2/2·1/2 실패)
 - Mac 빈 역 마스터 DB: SubwayRingExpressReplayIT 5/5 + SubwayRingReplayIT 같은 실행 통과(수정 전 5 실패)
 - Mac: 고친 5클래스 + application.subway.service.* 60클래스 전부 통과
+
+
+## 파이프라인 7단계: 승인하면 Draft PR (2026-11-28, M, docs/plan/fix-approval-pr)
+
+### 확정
+- 저장소 설정(API, 11-28): environment `fix-approval`(required_reviewers=minsuk330, prevent_self_review=false), Actions 권한 `can_approve_pull_request_reviews=true`(기본 read 유지). 개인 저장소 기본이 false 라 GITHUB_TOKEN 으로 PR 생성이 안 됨(verify-spec 이 잡음)
+- concurrency 를 job 단위로: test·notify 는 thread_ts 그룹, create-pr 은 run_id 그룹 — 승인 대기(최대 30일)가 같은 스레드 다음 run 을 막지 않게
+- 승인 가능 판정은 notify(별도 VM, 워크플로 커밋 코드)가 `approvable()`: passed&failed==0, 또는 failed&baseline_checked&len(failures)==failed&전부 baseline. GITHUB_OUTPUT 은 Slack 전송 전에 씀
+- create-pr: `!cancelled() && test success && approvable`. 워크플로 커밋($GITHUB_SHA)의 apply_edits/pr_body/notify_slack 만 RUNNER_TEMP 로 꺼내 실행. inputs.edits 를 IN_REF 에 다시 적용한 diff 와 fix-patch artifact 를 cmp — 다르면 중단(artifact 는 test job 이 overwrite 가능). 바뀐 경로만 add. 브랜치 fix/alert-<run_id>-<attempt>, Draft, GH_TOKEN. 실패 시 브랜치 삭제+스레드 알림
+- 단위 46 OK(approvable 판정표 12경우, 출력이 Slack 실패 전에 쓰임, pr-url 허용·거부, pr_body 무력화)
